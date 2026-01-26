@@ -1,9 +1,9 @@
 #include "FastIMU.h"
 #include <Wire.h>
 
-#define IMU_ADDRESS 0x68   // SDO collegato a GND
+#define IMU_ADDRESS 0x68
 
-MPU6050 IMU;
+BMI160 IMU;
 
 calData calib = {0};
 AccelData accelData;
@@ -16,79 +16,89 @@ const int pinLED  = 6;
 
 const int pinSwitchTemp = 3;
 const int pinSwitchPIR  = 4;
+const int pinSwitchIMU  = 5;
 
-// Timer
+// STATI
+bool enableIMU = false;
+bool enablePIR = false;
+
+// TIMER
 unsigned long lastRead = 0;
-const unsigned long interval = 3000;
+const unsigned long interval = 3000; // 3 secondi
 
 void setup() {
   Serial.begin(9600);
   Wire.begin();
-  Wire.setClock(400000);
 
-  pinMode(pinPIR, INPUT);
+  pinMode(pinPIR, INPUT);      // PIR CORRETTO
   pinMode(pinLED, OUTPUT);
 
   pinMode(pinSwitchTemp, INPUT_PULLUP);
-  pinMode(pinSwitchPIR,  INPUT_PULLUP);
+  pinMode(pinSwitchPIR, INPUT_PULLUP);
+  pinMode(pinSwitchIMU, INPUT_PULLUP);
 
-  int err = IMU.init(calib, IMU_ADDRESS);
-  if (err != 0) {
-    Serial.print("Errore IMU: ");
-    Serial.println(err);
-    while (1);
-  }
+  IMU.init(calib, IMU_ADDRESS);
 
-  Serial.println("Sistema avviato.");
+  Serial.println("SISTEMA AVVIATO - ATTENDI WARMUP PIR");
 }
 
 void loop() {
-
-  bool readTemp = (digitalRead(pinSwitchTemp) == LOW);
-  bool readPIR  = (digitalRead(pinSwitchPIR)  == LOW);
-
   unsigned long now = millis();
+
+  // LETTURA INTERRUTTORI
+  bool readTemp = (digitalRead(pinSwitchTemp) == LOW);
+  enablePIR     = (digitalRead(pinSwitchPIR) == HIGH);
+  enableIMU     = (digitalRead(pinSwitchIMU) == LOW);
+
+  // ----- PIR: LED SEGUE SUBITO IL MOVIMENTO -----
+  int motion = digitalRead(pinPIR);
+  if (motion == HIGH) {
+    digitalWrite(pinLED, HIGH);
+  } else {
+    digitalWrite(pinLED, LOW);
+  }
+
+  // ----- STAMPE OGNI 3 SECONDI -----
   if (now - lastRead >= interval) {
     lastRead = now;
 
-    // ----- LM35 -----
+    // LM35
     if (readTemp) {
       int raw = analogRead(pinLM35);
       float voltage = raw * 3.3 / 1023.0;
       float temperature = voltage * 100.0;
 
-      Serial.print("Temperatura: ");
+      Serial.print("TEMPERATURA: ");
       Serial.print(temperature);
-      Serial.println(" °C");
+      Serial.println(" C");
     }
 
-    // ----- PIR -----
-    if (readPIR) {
-      int motion = digitalRead(pinPIR);
-      Serial.print("Movimento: ");
-
+    // PIR
+    if (enablePIR) {
       if (motion == HIGH) {
         Serial.println("RILEVATO");
-        digitalWrite(pinLED, HIGH);
       } else {
-        Serial.println("Nessun movimento");
-        digitalWrite(pinLED, LOW);
+        Serial.println("NESSUN MOVIMENTO");
       }
+    } else {
+      Serial.println("PIR DISABILITATO");
     }
 
-    // ----- BMI160 -----
-    IMU.update();
-    IMU.getAccel(&accelData);
-    IMU.getGyro(&gyroData);
+    // BMI160
+    if (enableIMU) {
+      IMU.update();
+      IMU.getAccel(&accelData);
+      IMU.getGyro(&gyroData);
 
-    Serial.println("BMI160 IMU:");
-    Serial.print("Accel X: "); Serial.print(accelData.accelX);
-    Serial.print(" Y: "); Serial.print(accelData.accelY);
-    Serial.print(" Z: "); Serial.println(accelData.accelZ);
+      Serial.println("BMI160 IMU:");
+      Serial.print("ACCEL X: "); Serial.print(accelData.accelX);
+      Serial.print(" Y: "); Serial.print(accelData.accelY);
+      Serial.print(" Z: "); Serial.println(accelData.accelZ);
 
-    Serial.print("Gyro  X: "); Serial.print(gyroData.gyroX);
-    Serial.print(" Y: "); Serial.print(gyroData.gyroY);
-    Serial.print(" Z: "); Serial.println(gyroData.gyroZ);
+      Serial.print("GYRO X: "); Serial.print(gyroData.gyroX);
+      Serial.print(" Y: "); Serial.print(gyroData.gyroY);
+      Serial.print(" Z: "); Serial.println(gyroData.gyroZ);
+    }
 
     Serial.println("-------------------------");
   }
